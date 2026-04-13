@@ -27,8 +27,8 @@ static uint32_t s_seed = 1;
 static int s_current_id = 1;
 static bool s_sd_ready = false;
 
-/* 使用 GitHub Raw 地址，避免 CDN 301 重定向导致的不稳定 */
-#define POKEMON_IMAGE_URL "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/%d.png"
+/* 使用 jsdelivr CDN，配合手动重定向处理 */
+#define POKEMON_IMAGE_URL "https://cdn.jsdelivr.net/gh/PokeAPI/sprites@master/sprites/pokemon/%d.png"
 #define MAX_PNG_SIZE      65536
 #define DISPLAY_SIZE      128
 
@@ -124,13 +124,7 @@ static esp_err_t download_event_handler(esp_http_client_event_t *evt)
             }
             break;
         case HTTP_EVENT_ON_FINISH:
-            if (ctx->buffer && ctx->len > 0) {
-                char path[64];
-                snprintf(path, sizeof(path), "%s/%d.png", SD_POKEMON_DIR, ctx->id);
-                sd_write_file(path, ctx->buffer, ctx->len);
-                ESP_LOGI(TAG, "Saved %d bytes to %s", (int)ctx->len, path);
-            }
-            ctx->len = 0;
+            /* 文件保存逻辑移到 download_pokemon_with_url，避免 301 body 被误写 */
             break;
         case HTTP_EVENT_DISCONNECTED:
             ctx->len = 0;
@@ -139,6 +133,58 @@ static esp_err_t download_event_handler(esp_http_client_event_t *evt)
             break;
     }
     return ESP_OK;
+}
+
+/* 下载单个 URL，支持手动跟随 301/302 重定向 */
+static bool download_pokemon_with_url(const char *url, int id, int redirect_count)
+{
+    download_ctx_t ctx = {
+        .id = id,
+        .buffer = NULL,
+        .len = 0,
+    };
+    
+    esp_http_client_config_t config = {
+        .url = url,
+        .method = HTTP_METHOD_GET,
+        .event_handler = download_event_handler,
+        .timeout_ms = 20000,
+        .buffer_size = 4096,
+        .user_data = &ctx,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+        .disable_auto_redirect = true,
+        .user_agent = "esp32-pokemon-viewer/1.0",
+    };
+    
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    esp_err_t err = esp_http_client_perform(client);
+    int status = esp_http_client_get_status_code(client);
+    
+    bool success = false;
+    char location_buf[256] = {0};
+    char *location = NULL;
+    
+    if (err == ESP_OK && status == 200 && ctx.len > 0) {
+        char path[64];
+        snprintf(path, sizeof(path), "%s/%d.png", SD_POKEMON_DIR, id);
+        sd_write_file(path, ctx.buffer, ctx.len);
+        ESP_LOGI(TAG, "Saved %d bytes to %s", (int)ctx.len, path);
+        success = true;
+    } else if ((status == 301 || status == 302) && redirect_count < 2) {
+        if (esp_http_client_get_header(client, "Location", &location) == ESP_OK && location) {
+            strncpy(location_buf, location, sizeof(location_buf) - 1);
+            ESP_LOGI(TAG, "Redirect %d -> %s", status, location_buf);
+        }
+    }
+    
+    esp_http_client_cleanup(client);
+    vTaskDelay(pdMS_TO_TICKS(10));
+    
+    if (!success && location_buf[0]) {
+        return download_pokemon_with_url(location_buf, id, redirect_count + 1);
+    }
+    
+    return success;
 }
 
 /* 下载单个宝可梦（带重试） */
@@ -161,32 +207,7 @@ static bool download_pokemon(int id)
         
         ESP_LOGI(TAG, "Downloading #%d...", id);
         
-        download_ctx_t ctx = {
-            .id = id,
-            .buffer = NULL,
-            .len = 0,
-        };
-        
-        esp_http_client_config_t config = {
-            .url = url,
-            .method = HTTP_METHOD_GET,
-            .event_handler = download_event_handler,
-            .timeout_ms = 15000,
-            .buffer_size = 4096,
-            .user_data = &ctx,
-            .crt_bundle_attach = esp_crt_bundle_attach,
-            .max_redirection_count = 5,
-            .disable_auto_redirect = false,
-            .user_agent = "esp32-pokemon-viewer/1.0",
-        };
-        
-        esp_http_client_handle_t client = esp_http_client_init(&config);
-        esp_err_t err = esp_http_client_perform(client);
-        int status = esp_http_client_get_status_code(client);
-        esp_http_client_cleanup(client);
-        vTaskDelay(pdMS_TO_TICKS(10));
-        
-        if (err == ESP_OK && status == 200) {
+        if (download_pokemon_with_url(url, id, 0)) {
             if (attempt > 0) {
                 ESP_LOGI(TAG, "Download OK after retry #%d", attempt);
             } else {
@@ -195,7 +216,7 @@ static bool download_pokemon(int id)
             return true;
         }
         
-        ESP_LOGW(TAG, "Download attempt %d failed: %s, status %d", attempt, esp_err_to_name(err), status);
+        ESP_LOGW(TAG, "Download attempt %d failed", attempt);
     }
     
     ESP_LOGW(TAG, "Download #%d failed after all retries", id);

@@ -27,8 +27,13 @@ static uint32_t s_seed = 1;
 static int s_current_id = 1;
 static bool s_sd_ready = false;
 
-/* 使用 jsdelivr CDN，配合手动重定向处理 */
-#define POKEMON_IMAGE_URL "https://cdn.jsdelivr.net/gh/PokeAPI/sprites@master/sprites/pokemon/%d.png"
+/* 多个备用 API 源，按优先级尝试 */
+static const char * const POKEMON_IMAGE_URLS[] = {
+    "https://cdn.jsdelivr.net/gh/PokeAPI/sprites@master/sprites/pokemon/%d.png",
+    "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/%d.png",
+    "https://fastly.jsdelivr.net/gh/PokeAPI/sprites@master/sprites/pokemon/%d.png",
+};
+#define NUM_POKEMON_URLS (sizeof(POKEMON_IMAGE_URLS) / sizeof(POKEMON_IMAGE_URLS[0]))
 #define MAX_PNG_SIZE      32768
 #define DISPLAY_SIZE      96
 
@@ -127,94 +132,96 @@ static esp_err_t download_event_handler(esp_http_client_event_t *evt)
     return ESP_OK;
 }
 
-/* 下载单个宝可梦：自动跟随 301 但完全重启 client，避免 301 body 污染 */
+/* 下载单个宝可梦：自动跟随 301 但完全重启 client，支持多源切换 */
 static bool download_pokemon(int id)
 {
-    char url[128];
-    snprintf(url, sizeof(url), POKEMON_IMAGE_URL, id);
-    
     if (!wifi_manager_is_connected()) return false;
-    
-    char current_url[256];
-    strncpy(current_url, url, sizeof(current_url) - 1);
-    current_url[sizeof(current_url) - 1] = '\0';
     
     const int max_attempts = 5;
     
-    for (int attempt = 0; attempt < max_attempts; attempt++) {
-        if (attempt > 0) {
-            vTaskDelay(pdMS_TO_TICKS(500));
-            if (!wifi_manager_is_connected()) return false;
-        }
+    for (int source_idx = 0; source_idx < (int)NUM_POKEMON_URLS; source_idx++) {
+        char url[128];
+        snprintf(url, sizeof(url), POKEMON_IMAGE_URLS[source_idx], id);
         
-        ESP_LOGI(TAG, "Downloading #%d from %s (attempt %d)...", id, current_url, attempt);
+        char current_url[256];
+        strncpy(current_url, url, sizeof(current_url) - 1);
+        current_url[sizeof(current_url) - 1] = '\0';
         
-        download_ctx_t ctx = {
-            .id = id,
-            .buffer = NULL,
-            .len = 0,
-        };
-        
-        esp_http_client_config_t config = {
-            .url = current_url,
-            .method = HTTP_METHOD_GET,
-            .event_handler = download_event_handler,
-            .timeout_ms = 20000,
-            .buffer_size = 4096,
-            .user_data = &ctx,
-            .crt_bundle_attach = esp_crt_bundle_attach,
-            .disable_auto_redirect = true,
-            .user_agent = "esp32-pokemon-viewer/1.0",
-        };
-        
-        esp_http_client_handle_t client = esp_http_client_init(&config);
-        esp_err_t err = esp_http_client_perform(client);
-        int status = esp_http_client_get_status_code(client);
-        
-        bool done = false;
-        
-        if (err == ESP_OK) {
-            if (status == 200 && ctx.len > 0) {
-                bool decoded = png_decode_buffer(ctx.buffer, ctx.len, s_img_buf, DISPLAY_SIZE, DISPLAY_SIZE);
-                if (decoded) {
-                    char path_raw[64];
-                    snprintf(path_raw, sizeof(path_raw), "%s/%d.raw", SD_POKEMON_DIR, id);
-                    size_t raw_size = DISPLAY_SIZE * DISPLAY_SIZE * sizeof(uint16_t);
-                    sd_write_file(path_raw, (uint8_t *)s_img_buf, raw_size);
-                    ESP_LOGI(TAG, "Decoded and saved raw #%d (%d bytes)", id, (int)raw_size);
-                    done = true;
+        for (int attempt = 0; attempt < max_attempts; attempt++) {
+            if (attempt > 0 || source_idx > 0) {
+                vTaskDelay(pdMS_TO_TICKS(500));
+                if (!wifi_manager_is_connected()) return false;
+            }
+            
+            ESP_LOGI(TAG, "Downloading #%d from %s (source %d, attempt %d)...", id, current_url, source_idx, attempt);
+            
+            download_ctx_t ctx = {
+                .id = id,
+                .buffer = NULL,
+                .len = 0,
+            };
+            
+            esp_http_client_config_t config = {
+                .url = current_url,
+                .method = HTTP_METHOD_GET,
+                .event_handler = download_event_handler,
+                .timeout_ms = 20000,
+                .buffer_size = 4096,
+                .user_data = &ctx,
+                .crt_bundle_attach = esp_crt_bundle_attach,
+                .disable_auto_redirect = true,
+                .user_agent = "esp32-pokemon-viewer/1.0",
+            };
+            
+            esp_http_client_handle_t client = esp_http_client_init(&config);
+            esp_err_t err = esp_http_client_perform(client);
+            int status = esp_http_client_get_status_code(client);
+            
+            bool done = false;
+            
+            if (err == ESP_OK) {
+                if (status == 200 && ctx.len > 0) {
+                    bool decoded = png_decode_buffer(ctx.buffer, ctx.len, s_img_buf, DISPLAY_SIZE, DISPLAY_SIZE);
+                    if (decoded) {
+                        char path_raw[64];
+                        snprintf(path_raw, sizeof(path_raw), "%s/%d.raw", SD_POKEMON_DIR, id);
+                        size_t raw_size = DISPLAY_SIZE * DISPLAY_SIZE * sizeof(uint16_t);
+                        sd_write_file(path_raw, (uint8_t *)s_img_buf, raw_size);
+                        ESP_LOGI(TAG, "Decoded and saved raw #%d (%d bytes)", id, (int)raw_size);
+                        done = true;
+                    } else {
+                        ESP_LOGW(TAG, "PNG decode failed for #%d", id);
+                    }
+                } else if ((status == 301 || status == 302) && attempt < max_attempts - 1) {
+                    char *location = NULL;
+                    if (esp_http_client_get_header(client, "Location", &location) != ESP_OK || !location || !location[0]) {
+                        esp_http_client_get_header(client, "location", &location);
+                    }
+                    if (location && location[0]) {
+                        ESP_LOGI(TAG, "Redirect %d -> %s", status, location);
+                        strncpy(current_url, location, sizeof(current_url) - 1);
+                        current_url[sizeof(current_url) - 1] = '\0';
+                    } else {
+                        ESP_LOGW(TAG, "Status %d but no Location header", status);
+                    }
                 } else {
-                    ESP_LOGW(TAG, "PNG decode failed for #%d", id);
-                }
-            } else if ((status == 301 || status == 302) && attempt < max_attempts - 1) {
-                char *location = NULL;
-                if (esp_http_client_get_header(client, "Location", &location) != ESP_OK || !location || !location[0]) {
-                    esp_http_client_get_header(client, "location", &location);
-                }
-                if (location && location[0]) {
-                    ESP_LOGI(TAG, "Redirect %d -> %s", status, location);
-                    strncpy(current_url, location, sizeof(current_url) - 1);
-                    current_url[sizeof(current_url) - 1] = '\0';
-                } else {
-                    ESP_LOGW(TAG, "Status %d but no Location header", status);
+                    ESP_LOGW(TAG, "Unexpected status %d, len %d", status, (int)ctx.len);
                 }
             } else {
-                ESP_LOGW(TAG, "Unexpected status %d, len %d", status, (int)ctx.len);
+                ESP_LOGW(TAG, "Perform failed: %s, status %d, len %d", esp_err_to_name(err), status, (int)ctx.len);
             }
-        } else {
-            ESP_LOGW(TAG, "Perform failed: %s, status %d, len %d", esp_err_to_name(err), status, (int)ctx.len);
-        }
-        
-        esp_http_client_cleanup(client);
-        vTaskDelay(pdMS_TO_TICKS(20));
-        
-        if (done) {
-            ESP_LOGI(TAG, "Download OK");
-            return true;
+            
+            esp_http_client_cleanup(client);
+            vTaskDelay(pdMS_TO_TICKS(20));
+            
+            if (done) {
+                ESP_LOGI(TAG, "Download OK");
+                return true;
+            }
         }
     }
     
-    ESP_LOGW(TAG, "Download #%d failed after all retries", id);
+    ESP_LOGW(TAG, "Download #%d failed after all sources and retries", id);
     return false;
 }
 

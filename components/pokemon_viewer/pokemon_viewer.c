@@ -29,11 +29,13 @@ static bool s_sd_ready = false;
 
 /* 使用 jsdelivr CDN，配合手动重定向处理 */
 #define POKEMON_IMAGE_URL "https://cdn.jsdelivr.net/gh/PokeAPI/sprites@master/sprites/pokemon/%d.png"
-#define MAX_PNG_SIZE      65536
-#define DISPLAY_SIZE      128
+#define MAX_PNG_SIZE      32768
+#define DISPLAY_SIZE      240
 
-/* 静态大缓冲区，避免频繁 malloc/free 导致堆碎片化
- * 下载和读取PNG共用同一块缓冲区，因为两者不会并发执行 */
+/* 静态大缓冲区
+ * s_io_buf:  用于HTTP下载PNG原始数据
+ * s_img_buf: 用于PNG解码输出以及LCD显示（240x240 RGB565）
+ * 两者不会并发使用，因为都在同一个viewer_task中顺序执行 */
 static uint8_t  s_io_buf[MAX_PNG_SIZE];
 static uint16_t s_img_buf[DISPLAY_SIZE * DISPLAY_SIZE];
 
@@ -85,25 +87,22 @@ static void display_rgb565_to_lcd(const uint16_t *img_buf, int img_size)
     }
 }
 
-/* 从SD卡加载并显示PNG（直接解码到RGB565） */
+/* 从SD卡加载预解码的RAW文件并显示 */
 static bool show_png_from_sd(int id)
 {
     if (!s_sd_ready) return false;
     
     char path[64];
-    snprintf(path, sizeof(path), "%s/%d.png", SD_POKEMON_DIR, id);
+    snprintf(path, sizeof(path), "%s/%d.raw", SD_POKEMON_DIR, id);
     
+    size_t expected_size = DISPLAY_SIZE * DISPLAY_SIZE * sizeof(uint16_t);
     size_t size = 0;
-    if (sd_read_file(path, s_io_buf, MAX_PNG_SIZE, &size) != ESP_OK || size == 0) {
+    if (sd_read_file(path, (uint8_t *)s_img_buf, expected_size, &size) != ESP_OK || size != expected_size) {
         return false;
     }
     
-    bool ok = png_decode_buffer(s_io_buf, size, s_img_buf, DISPLAY_SIZE, DISPLAY_SIZE);
-    if (ok) {
-        display_rgb565_to_lcd(s_img_buf, DISPLAY_SIZE);
-    }
-    
-    return ok;
+    display_rgb565_to_lcd(s_img_buf, DISPLAY_SIZE);
+    return true;
 }
 
 /* HTTP下载处理 - 使用静态缓冲区，避免 malloc */
@@ -165,11 +164,18 @@ static bool download_pokemon_with_url(const char *url, int id, int redirect_coun
     char *location = NULL;
     
     if (err == ESP_OK && status == 200 && ctx.len > 0) {
-        char path[64];
-        snprintf(path, sizeof(path), "%s/%d.png", SD_POKEMON_DIR, id);
-        sd_write_file(path, ctx.buffer, ctx.len);
-        ESP_LOGI(TAG, "Saved %d bytes to %s", (int)ctx.len, path);
-        success = true;
+        /* 下载成功后立即解码为RGB565并保存为.raw */
+        bool decoded = png_decode_buffer(ctx.buffer, ctx.len, s_img_buf, DISPLAY_SIZE, DISPLAY_SIZE);
+        if (decoded) {
+            char path_raw[64];
+            snprintf(path_raw, sizeof(path_raw), "%s/%d.raw", SD_POKEMON_DIR, id);
+            size_t raw_size = DISPLAY_SIZE * DISPLAY_SIZE * sizeof(uint16_t);
+            sd_write_file(path_raw, (uint8_t *)s_img_buf, raw_size);
+            ESP_LOGI(TAG, "Decoded and saved raw #%d (%d bytes)", id, (int)raw_size);
+            success = true;
+        } else {
+            ESP_LOGW(TAG, "PNG decode failed for #%d, will retry next time", id);
+        }
     } else if ((status == 301 || status == 302) && redirect_count < 2) {
         if (esp_http_client_get_header(client, "Location", &location) == ESP_OK && location) {
             strncpy(location_buf, location, sizeof(location_buf) - 1);
@@ -178,7 +184,7 @@ static bool download_pokemon_with_url(const char *url, int id, int redirect_coun
     }
     
     esp_http_client_cleanup(client);
-    vTaskDelay(pdMS_TO_TICKS(10));
+    vTaskDelay(pdMS_TO_TICKS(20));
     
     if (!success && location_buf[0]) {
         return download_pokemon_with_url(location_buf, id, redirect_count + 1);
@@ -226,7 +232,7 @@ static bool download_pokemon(int id)
 static bool is_cached(int id) {
     if (!s_sd_ready) return false;
     char path[64];
-    snprintf(path, sizeof(path), "%s/%d.png", SD_POKEMON_DIR, id);
+    snprintf(path, sizeof(path), "%s/%d.raw", SD_POKEMON_DIR, id);
     return sd_file_exists(path);
 }
 

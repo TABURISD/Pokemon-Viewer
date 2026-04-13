@@ -75,7 +75,7 @@ from here.*/
 static unsigned char s_lodepng_pool[LODEPNG_POOL_SIZE];
 static size_t s_lodepng_offset = 0;
 
-void lodepng_alloc_reset(void) {
+extern "C" void lodepng_alloc_reset(void) {
     s_lodepng_offset = 0;
 }
 

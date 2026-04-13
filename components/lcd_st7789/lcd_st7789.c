@@ -100,11 +100,19 @@ void lcd_clear(uint16_t color)
 void lcd_draw_pokeball(void)
 {
     int cx = LCD_WIDTH / 2;
-    int cy = LCD_HEIGHT / 2;  // Centered
+    int cy = LCD_HEIGHT / 2;
     
     lcd_clear(COLOR_BLACK);
     
-    // Upper half - Red (flipped)
+    // Outer black ring (radius 62)
+    for (int dy = -62; dy <= 62; dy++) {
+        int row = cy - dy;
+        if (row < 0 || row >= LCD_HEIGHT) continue;
+        int dx = (int)sqrtf(3844 - dy*dy);
+        if (dx > 0) lcd_fill(cx - dx, row, dx * 2, 1, COLOR_BLACK);
+    }
+    
+    // Upper half - Red (radius 60, flipped for LCD orientation)
     for (int dy = -60; dy < 0; dy++) {
         int row = cy - dy;
         if (row < 0 || row >= LCD_HEIGHT) continue;
@@ -112,7 +120,7 @@ void lcd_draw_pokeball(void)
         if (dx > 0) lcd_fill(cx - dx, row, dx * 2, 1, COLOR_RED);
     }
     
-    // Lower half - White (flipped)
+    // Lower half - White (radius 60, flipped for LCD orientation)
     for (int dy = 0; dy <= 60; dy++) {
         int row = cy - dy;
         if (row < 0 || row >= LCD_HEIGHT) continue;
@@ -120,31 +128,31 @@ void lcd_draw_pokeball(void)
         if (dx > 0) lcd_fill(cx - dx, row, dx * 2, 1, COLOR_WHITE);
     }
     
-    // Center black band (height 20, connects with inner black circle)
-    lcd_fill(cx - 65, cy - 10, 130, 20, COLOR_BLACK);
+    // Center black band (height 14, matches button outer ring)
+    lcd_fill(cx - 60, cy - 7, 120, 14, COLOR_BLACK);
     
-    // Center button - outer white circle (radius 18)
-    for (int dy = -18; dy <= 18; dy++) {
+    // Center button - outer black ring (radius 16)
+    for (int dy = -16; dy <= 16; dy++) {
         int row = cy + dy;
         if (row < 0 || row >= LCD_HEIGHT) continue;
-        int dx = (int)sqrtf(324 - dy*dy);
-        if (dx > 0) lcd_fill(cx - dx, row, dx * 2, 1, COLOR_WHITE);
+        int dx = (int)sqrtf(256 - dy*dy);
+        if (dx > 0) lcd_fill(cx - dx, row, dx * 2, 1, COLOR_BLACK);
     }
     
-    // Inner black circle (radius 10) - connects with the black band
+    // Center button - middle white ring (radius 10)
     for (int dy = -10; dy <= 10; dy++) {
         int row = cy + dy;
         if (row < 0 || row >= LCD_HEIGHT) continue;
         int dx = (int)sqrtf(100 - dy*dy);
-        if (dx > 0) lcd_fill(cx - dx, row, dx * 2, 1, COLOR_BLACK);
+        if (dx > 0) lcd_fill(cx - dx, row, dx * 2, 1, COLOR_WHITE);
     }
     
-    // Core white circle (radius 5)
-    for (int dy = -5; dy <= 5; dy++) {
+    // Center button - inner black core (radius 4)
+    for (int dy = -4; dy <= 4; dy++) {
         int row = cy + dy;
         if (row < 0 || row >= LCD_HEIGHT) continue;
-        int dx = (int)sqrtf(25 - dy*dy);
-        if (dx > 0) lcd_fill(cx - dx, row, dx * 2, 1, COLOR_WHITE);
+        int dx = (int)sqrtf(16 - dy*dy);
+        if (dx > 0) lcd_fill(cx - dx, row, dx * 2, 1, COLOR_BLACK);
     }
 }
 

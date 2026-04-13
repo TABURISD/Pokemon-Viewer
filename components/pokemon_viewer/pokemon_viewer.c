@@ -30,11 +30,12 @@ static bool s_sd_ready = false;
 /* 使用 jsdelivr CDN，配合手动重定向处理 */
 #define POKEMON_IMAGE_URL "https://cdn.jsdelivr.net/gh/PokeAPI/sprites@master/sprites/pokemon/%d.png"
 #define MAX_PNG_SIZE      32768
-#define DISPLAY_SIZE      240
+#define DISPLAY_SIZE      96
 
-/* 静态大缓冲区
- * s_io_buf:  用于HTTP下载PNG原始数据
- * s_img_buf: 用于PNG解码输出以及LCD显示（240x240 RGB565）
+/* 静态缓冲区
+ * s_io_buf:  用于HTTP下载PNG原始数据 (32KB)
+ * s_img_buf: 用于PNG解码输出以及LCD显示缓存 (96x96 RGB565 = ~18KB)
+ * 显示时会把 96x96 放大到 240x240 全屏
  * 两者不会并发使用，因为都在同一个viewer_task中顺序执行 */
 static uint8_t  s_io_buf[MAX_PNG_SIZE];
 static uint16_t s_img_buf[DISPLAY_SIZE * DISPLAY_SIZE];
@@ -61,28 +62,31 @@ static void draw_pokeball(void)
     lcd_draw_pokeball();
 }
 
-/* 显示RGB565图像到LCD */
+/* 将 img_size x img_size 的 RGB565 图像放大到全屏 240x240 LCD */
 static void display_rgb565_to_lcd(const uint16_t *img_buf, int img_size)
 {
-    int offset_x = (LCD_WIDTH - img_size) / 2;
-    int offset_y = (LCD_HEIGHT - img_size) / 2;
-    
     lcd_clear(COLOR_BLACK);
     
-    for (int y = 0; y < img_size; y++) {
-        int row = offset_y + y;
-        if (row < 0 || row >= LCD_HEIGHT) continue;
+    for (int sy = 0; sy < img_size; sy++) {
+        int y_start = sy * LCD_HEIGHT / img_size;
+        int y_end = (sy + 1) * LCD_HEIGHT / img_size;
+        int h = y_end - y_start;
+        if (h <= 0) continue;
         
-        for (int x = 0; x < img_size; ) {
-            uint16_t color = img_buf[y * img_size + x];
-            
+        for (int sx = 0; sx < img_size; ) {
+            uint16_t color = img_buf[sy * img_size + sx];
             int run_len = 1;
-            while (x + run_len < img_size && img_buf[y * img_size + x + run_len] == color) {
+            while (sx + run_len < img_size && img_buf[sy * img_size + sx + run_len] == color) {
                 run_len++;
             }
             
-            lcd_fill(offset_x + x, row, run_len, 1, color);
-            x += run_len;
+            int x_start = sx * LCD_WIDTH / img_size;
+            int x_end = (sx + run_len) * LCD_WIDTH / img_size;
+            int w = x_end - x_start;
+            if (w > 0) {
+                lcd_fill(x_start, y_start, w, h, color);
+            }
+            sx += run_len;
         }
     }
 }

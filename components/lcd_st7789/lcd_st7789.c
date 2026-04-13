@@ -71,6 +71,7 @@ void lcd_fill(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color)
 void lcd_clear(uint16_t color)
 {
     lcd_fill(0, 0, LCD_WIDTH, LCD_HEIGHT, color);
+    s_progress_dirty = true;
 }
 
 void lcd_draw_pokeball(void)
@@ -241,6 +242,7 @@ static uint16_t rainbow_color(uint8_t pos)
 }
 
 static int s_last_percent = -1;
+static bool s_progress_dirty = true;
 
 void lcd_boot_progress(int percent)
 {
@@ -254,8 +256,10 @@ void lcd_boot_progress(int percent)
     int num_y = bar_y - 34;
     int num_x = bar_x + bar_width / 2 - 30;
     
-    if (s_last_percent < 0) {
-        // First call: draw everything
+    int fill_width = (percent * bar_width) / 100;
+    
+    if (s_last_percent < 0 || s_progress_dirty) {
+        // Full redraw: screen may have been cleared by other tasks
         lcd_fill(bar_x - 4, num_y - 4, bar_width + 8, 50, COLOR_BLACK);
         
         // Percentage number
@@ -269,18 +273,9 @@ void lcd_boot_progress(int percent)
         
         // Black inner background
         lcd_fill(bar_x, bar_y, bar_width, bar_height, COLOR_BLACK);
-    } else {
-        // Only update the number (clear old number area)
-        lcd_fill(num_x - 2, num_y - 2, 74, 26, COLOR_BLACK);
-        draw_number(num_x, num_y, percent, COLOR_YELLOW);
-    }
-    
-    int last_fill = (s_last_percent * bar_width) / 100;
-    int fill_width = (percent * bar_width) / 100;
-    
-    // Only draw the delta progress, not from start
-    if (fill_width > last_fill) {
-        for (int xx = last_fill; xx < fill_width; xx += 2) {
+        
+        // Draw full progress from start
+        for (int xx = 0; xx < fill_width; xx += 2) {
             uint8_t hue = (xx * 255) / bar_width;
             uint16_t c = rainbow_color(hue);
             int w = (xx + 2 > fill_width) ? (fill_width - xx) : 2;
@@ -289,10 +284,30 @@ void lcd_boot_progress(int percent)
             }
         }
         
-        // Glow tail
-        if (fill_width < bar_width) {
-            lcd_fill(bar_x + fill_width - 2, bar_y - 1, 4, bar_height + 2, COLOR_WHITE);
+        s_progress_dirty = false;
+    } else {
+        // Only update the number (clear old number area)
+        lcd_fill(num_x - 2, num_y - 2, 74, 26, COLOR_BLACK);
+        draw_number(num_x, num_y, percent, COLOR_YELLOW);
+        
+        int last_fill = (s_last_percent * bar_width) / 100;
+        
+        // Only draw the delta progress, not from start
+        if (fill_width > last_fill) {
+            for (int xx = last_fill; xx < fill_width; xx += 2) {
+                uint8_t hue = (xx * 255) / bar_width;
+                uint16_t c = rainbow_color(hue);
+                int w = (xx + 2 > fill_width) ? (fill_width - xx) : 2;
+                if (w > 0) {
+                    lcd_fill(bar_x + xx, bar_y, w, bar_height, c);
+                }
+            }
         }
+    }
+    
+    // Glow tail
+    if (fill_width > 0 && fill_width < bar_width) {
+        lcd_fill(bar_x + fill_width - 2, bar_y - 1, 4, bar_height + 2, COLOR_WHITE);
     }
     
     s_last_percent = percent;

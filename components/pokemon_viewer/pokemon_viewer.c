@@ -209,11 +209,9 @@ static bool is_cached(int id) {
 }
 
 static void viewer_task(void *pvParameters) {
-    // 1. 第一时间显示精灵球
-    draw_pokeball();
     ESP_LOGI(TAG, "=== Pokemon Viewer Started ===");
     
-    // 2. 初始化SD卡（后台进行）
+    // 初始化SD卡（后台进行）
     if (sd_card_init() == ESP_OK) {
         s_sd_ready = true;
         ESP_LOGI(TAG, "SD OK");
@@ -223,7 +221,7 @@ static void viewer_task(void *pvParameters) {
     
     s_current_id = get_random_id();
     
-    // 3. 主循环
+    // 主循环
     while (1) {
         bool displayed = false;
         

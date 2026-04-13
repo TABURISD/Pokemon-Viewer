@@ -123,7 +123,6 @@ static esp_err_t download_event_handler(esp_http_client_event_t *evt)
             }
             break;
         case HTTP_EVENT_ON_FINISH:
-            /* 文件保存逻辑移到 download_pokemon_with_url，避免 301 body 被误写 */
             break;
         case HTTP_EVENT_DISCONNECTED:
             ctx->len = 0;
@@ -132,65 +131,6 @@ static esp_err_t download_event_handler(esp_http_client_event_t *evt)
             break;
     }
     return ESP_OK;
-}
-
-/* 下载单个 URL，支持手动跟随 301/302 重定向 */
-static bool download_pokemon_with_url(const char *url, int id, int redirect_count)
-{
-    download_ctx_t ctx = {
-        .id = id,
-        .buffer = NULL,
-        .len = 0,
-    };
-    
-    esp_http_client_config_t config = {
-        .url = url,
-        .method = HTTP_METHOD_GET,
-        .event_handler = download_event_handler,
-        .timeout_ms = 20000,
-        .buffer_size = 4096,
-        .user_data = &ctx,
-        .crt_bundle_attach = esp_crt_bundle_attach,
-        .disable_auto_redirect = true,
-        .user_agent = "esp32-pokemon-viewer/1.0",
-    };
-    
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-    esp_err_t err = esp_http_client_perform(client);
-    int status = esp_http_client_get_status_code(client);
-    
-    bool success = false;
-    char location_buf[256] = {0};
-    char *location = NULL;
-    
-    if (err == ESP_OK && status == 200 && ctx.len > 0) {
-        /* 下载成功后立即解码为RGB565并保存为.raw */
-        bool decoded = png_decode_buffer(ctx.buffer, ctx.len, s_img_buf, DISPLAY_SIZE, DISPLAY_SIZE);
-        if (decoded) {
-            char path_raw[64];
-            snprintf(path_raw, sizeof(path_raw), "%s/%d.raw", SD_POKEMON_DIR, id);
-            size_t raw_size = DISPLAY_SIZE * DISPLAY_SIZE * sizeof(uint16_t);
-            sd_write_file(path_raw, (uint8_t *)s_img_buf, raw_size);
-            ESP_LOGI(TAG, "Decoded and saved raw #%d (%d bytes)", id, (int)raw_size);
-            success = true;
-        } else {
-            ESP_LOGW(TAG, "PNG decode failed for #%d, will retry next time", id);
-        }
-    } else if ((status == 301 || status == 302) && redirect_count < 2) {
-        if (esp_http_client_get_header(client, "Location", &location) == ESP_OK && location) {
-            strncpy(location_buf, location, sizeof(location_buf) - 1);
-            ESP_LOGI(TAG, "Redirect %d -> %s", status, location_buf);
-        }
-    }
-    
-    esp_http_client_cleanup(client);
-    vTaskDelay(pdMS_TO_TICKS(20));
-    
-    if (!success && location_buf[0]) {
-        return download_pokemon_with_url(location_buf, id, redirect_count + 1);
-    }
-    
-    return success;
 }
 
 /* 下载单个宝可梦（带重试） */
@@ -213,16 +153,46 @@ static bool download_pokemon(int id)
         
         ESP_LOGI(TAG, "Downloading #%d...", id);
         
-        if (download_pokemon_with_url(url, id, 0)) {
-            if (attempt > 0) {
-                ESP_LOGI(TAG, "Download OK after retry #%d", attempt);
+        download_ctx_t ctx = {
+            .id = id,
+            .buffer = NULL,
+            .len = 0,
+        };
+        
+        esp_http_client_config_t config = {
+            .url = url,
+            .method = HTTP_METHOD_GET,
+            .event_handler = download_event_handler,
+            .timeout_ms = 20000,
+            .buffer_size = 4096,
+            .user_data = &ctx,
+            .crt_bundle_attach = esp_crt_bundle_attach,
+            .max_redirection_count = 5,
+            .disable_auto_redirect = false,
+            .user_agent = "esp32-pokemon-viewer/1.0",
+        };
+        
+        esp_http_client_handle_t client = esp_http_client_init(&config);
+        esp_err_t err = esp_http_client_perform(client);
+        int status = esp_http_client_get_status_code(client);
+        esp_http_client_cleanup(client);
+        vTaskDelay(pdMS_TO_TICKS(20));
+        
+        if (err == ESP_OK && status == 200 && ctx.len > 0) {
+            bool decoded = png_decode_buffer(ctx.buffer, ctx.len, s_img_buf, DISPLAY_SIZE, DISPLAY_SIZE);
+            if (decoded) {
+                char path_raw[64];
+                snprintf(path_raw, sizeof(path_raw), "%s/%d.raw", SD_POKEMON_DIR, id);
+                size_t raw_size = DISPLAY_SIZE * DISPLAY_SIZE * sizeof(uint16_t);
+                sd_write_file(path_raw, (uint8_t *)s_img_buf, raw_size);
+                ESP_LOGI(TAG, "Decoded and saved raw #%d (%d bytes)", id, (int)raw_size);
+                return true;
             } else {
-                ESP_LOGI(TAG, "Download OK");
+                ESP_LOGW(TAG, "PNG decode failed for #%d", id);
             }
-            return true;
         }
         
-        ESP_LOGW(TAG, "Download attempt %d failed", attempt);
+        ESP_LOGW(TAG, "Download attempt %d failed: %s, status %d, len %d", attempt, esp_err_to_name(err), status, (int)ctx.len);
     }
     
     ESP_LOGW(TAG, "Download #%d failed after all retries", id);

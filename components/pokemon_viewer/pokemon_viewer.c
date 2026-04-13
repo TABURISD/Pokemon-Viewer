@@ -29,9 +29,9 @@ static bool s_sd_ready = false;
 
 /* 多个备用 API 源，按优先级尝试 */
 static const char * const POKEMON_IMAGE_URLS[] = {
-    "https://pokeapi.github.io/sprites/sprites/pokemon/%d.png",
-    "https://fastly.jsdelivr.net/gh/PokeAPI/sprites@master/sprites/pokemon/%d.png",
     "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/%d.png",
+    "https://play.pokemonshowdown.com/sprites/gen5/%d.png",
+    "https://fastly.jsdelivr.net/gh/PokeAPI/sprites@master/sprites/pokemon/%d.png",
 };
 #define NUM_POKEMON_URLS (sizeof(POKEMON_IMAGE_URLS) / sizeof(POKEMON_IMAGE_URLS[0]))
 #define MAX_PNG_SIZE      32768
@@ -132,12 +132,10 @@ static esp_err_t download_event_handler(esp_http_client_event_t *evt)
     return ESP_OK;
 }
 
-/* 下载单个宝可梦：自动跟随 301 但完全重启 client，支持多源切换 */
+/* 下载单个宝可梦：支持多源自动切换，404 立即切源，其他错误重试 */
 static bool download_pokemon(int id)
 {
     if (!wifi_manager_is_connected()) return false;
-    
-    const int max_attempts = 5;
     
     for (int source_idx = 0; source_idx < (int)NUM_POKEMON_URLS; source_idx++) {
         char url[128];
@@ -147,9 +145,11 @@ static bool download_pokemon(int id)
         strncpy(current_url, url, sizeof(current_url) - 1);
         current_url[sizeof(current_url) - 1] = '\0';
         
+        const int max_attempts = 3;
+        
         for (int attempt = 0; attempt < max_attempts; attempt++) {
             if (attempt > 0 || source_idx > 0) {
-                vTaskDelay(pdMS_TO_TICKS(500));
+                vTaskDelay(pdMS_TO_TICKS(2000));
                 if (!wifi_manager_is_connected()) return false;
             }
             
@@ -178,6 +178,7 @@ static bool download_pokemon(int id)
             int status = esp_http_client_get_status_code(client);
             
             bool done = false;
+            bool should_switch_source = false;
             
             if (err == ESP_OK) {
                 if (status == 200 && ctx.len > 0) {
@@ -192,6 +193,9 @@ static bool download_pokemon(int id)
                     } else {
                         ESP_LOGW(TAG, "PNG decode failed for #%d", id);
                     }
+                } else if (status == 404) {
+                    ESP_LOGW(TAG, "Source %d returned 404 for #%d, switching source", source_idx, id);
+                    should_switch_source = true;
                 } else if ((status == 301 || status == 302) && attempt < max_attempts - 1) {
                     char *location = NULL;
                     if (esp_http_client_get_header(client, "Location", &location) != ESP_OK || !location || !location[0]) {
@@ -217,6 +221,10 @@ static bool download_pokemon(int id)
             if (done) {
                 ESP_LOGI(TAG, "Download OK");
                 return true;
+            }
+            
+            if (should_switch_source) {
+                break;  // break inner attempt loop, go to next source
             }
         }
     }

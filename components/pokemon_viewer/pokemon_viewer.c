@@ -188,7 +188,10 @@ static bool download_pokemon(int id)
                 }
             } else if ((status == 301 || status == 302) && attempt < max_attempts - 1) {
                 char *location = NULL;
-                if (esp_http_client_get_header(client, "Location", &location) == ESP_OK && location && location[0]) {
+                if (esp_http_client_get_header(client, "Location", &location) != ESP_OK || !location || !location[0]) {
+                    esp_http_client_get_header(client, "location", &location);
+                }
+                if (location && location[0]) {
                     ESP_LOGI(TAG, "Redirect %d -> %s", status, location);
                     strncpy(current_url, location, sizeof(current_url) - 1);
                     current_url[sizeof(current_url) - 1] = '\0';

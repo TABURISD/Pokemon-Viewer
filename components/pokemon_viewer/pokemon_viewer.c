@@ -29,9 +29,9 @@ static bool s_sd_ready = false;
 
 /* 多个备用 API 源，按优先级尝试 */
 static const char * const POKEMON_IMAGE_URLS[] = {
-    "https://cdn.jsdelivr.net/gh/PokeAPI/sprites@master/sprites/pokemon/%d.png",
-    "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/%d.png",
+    "https://pokeapi.github.io/sprites/sprites/pokemon/%d.png",
     "https://fastly.jsdelivr.net/gh/PokeAPI/sprites@master/sprites/pokemon/%d.png",
+    "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/%d.png",
 };
 #define NUM_POKEMON_URLS (sizeof(POKEMON_IMAGE_URLS) / sizeof(POKEMON_IMAGE_URLS[0]))
 #define MAX_PNG_SIZE      32768

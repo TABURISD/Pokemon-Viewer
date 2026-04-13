@@ -1,6 +1,8 @@
 #ifndef LODEPNG_ALLOC_H
 #define LODEPNG_ALLOC_H
 
+#include <stddef.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif

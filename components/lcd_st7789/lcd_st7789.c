@@ -324,8 +324,8 @@ void lcd_boot_progress(int percent)
         
         // Percentage number (show OK at 100%)
         if (percent == 100) {
-            draw_letter(num_x + 8, num_y, 'O', COLOR_YELLOW);
-            draw_letter(num_x + 24, num_y, 'K', COLOR_YELLOW);
+            draw_letter(num_x + 18, num_y, 'O', COLOR_YELLOW);
+            draw_letter(num_x + 30, num_y, 'K', COLOR_YELLOW);
         } else {
             draw_number(num_x, num_y, percent, COLOR_YELLOW);
         }
@@ -354,8 +354,8 @@ void lcd_boot_progress(int percent)
         // Only update the number (clear old number area)
         lcd_fill(num_x - 2, num_y - 2, 74, 26, COLOR_BLACK);
         if (percent == 100) {
-            draw_letter(num_x + 8, num_y, 'O', COLOR_YELLOW);
-            draw_letter(num_x + 24, num_y, 'K', COLOR_YELLOW);
+            draw_letter(num_x + 18, num_y, 'O', COLOR_YELLOW);
+            draw_letter(num_x + 30, num_y, 'K', COLOR_YELLOW);
         } else {
             draw_number(num_x, num_y, percent, COLOR_YELLOW);
         }

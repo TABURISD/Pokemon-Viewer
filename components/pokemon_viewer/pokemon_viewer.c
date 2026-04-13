@@ -30,7 +30,7 @@ static bool s_sd_ready = false;
 /* 多个备用 API 源，按优先级尝试 */
 static const char * const POKEMON_IMAGE_URLS[] = {
     "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/%d.png",
-    "https://play.pokemonshowdown.com/sprites/gen5/%d.png",
+    "http://play.pokemonshowdown.com/sprites/gen5/%d.png",
     "https://fastly.jsdelivr.net/gh/PokeAPI/sprites@master/sprites/pokemon/%d.png",
 };
 #define NUM_POKEMON_URLS (sizeof(POKEMON_IMAGE_URLS) / sizeof(POKEMON_IMAGE_URLS[0]))
@@ -183,6 +183,9 @@ static bool download_pokemon(int id)
             if (err == ESP_OK) {
                 if (status == 200 && ctx.len > 0) {
                     bool decoded = png_decode_buffer(ctx.buffer, ctx.len, s_img_buf, DISPLAY_SIZE, DISPLAY_SIZE);
+                    if (!decoded) {
+                        ESP_LOGW(TAG, "PNG decode failed for #%d from source %d", id, source_idx);
+                    }
                     if (decoded) {
                         char path_raw[64];
                         snprintf(path_raw, sizeof(path_raw), "%s/%d.raw", SD_POKEMON_DIR, id);
@@ -190,8 +193,6 @@ static bool download_pokemon(int id)
                         sd_write_file(path_raw, (uint8_t *)s_img_buf, raw_size);
                         ESP_LOGI(TAG, "Decoded and saved raw #%d (%d bytes)", id, (int)raw_size);
                         done = true;
-                    } else {
-                        ESP_LOGW(TAG, "PNG decode failed for #%d", id);
                     }
                 } else if (status == 404) {
                     ESP_LOGW(TAG, "Source %d returned 404 for #%d, switching source", source_idx, id);

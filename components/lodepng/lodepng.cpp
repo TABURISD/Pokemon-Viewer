@@ -71,7 +71,7 @@ lodepng source code. Don't forget to remove "static" if you copypaste them
 from here.*/
 
 /* Custom static bump allocator for ESP32 to avoid heap fragmentation */
-#define LODEPNG_POOL_SIZE (72 * 1024)
+#define LODEPNG_POOL_SIZE (128 * 1024)
 static unsigned char s_lodepng_pool[LODEPNG_POOL_SIZE];
 static size_t s_lodepng_offset = 0;
 

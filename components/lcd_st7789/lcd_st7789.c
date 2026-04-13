@@ -282,8 +282,12 @@ void lcd_boot_progress(int percent)
         // Full redraw: screen may have been cleared by other tasks
         lcd_fill(bar_x - 4, num_y - 4, bar_width + 8, 50, COLOR_BLACK);
         
-        // Percentage number
-        draw_number(num_x, num_y, percent, COLOR_YELLOW);
+        // Percentage number (show OK at 100%)
+        if (percent == 100) {
+            draw_text_small(num_x + 14, num_y, "OK", COLOR_YELLOW);
+        } else {
+            draw_number(num_x, num_y, percent, COLOR_YELLOW);
+        }
         
         // White border
         lcd_fill(bar_x - 2, bar_y - 2, bar_width + 4, 2, COLOR_WHITE);
@@ -308,7 +312,11 @@ void lcd_boot_progress(int percent)
     } else {
         // Only update the number (clear old number area)
         lcd_fill(num_x - 2, num_y - 2, 74, 26, COLOR_BLACK);
-        draw_number(num_x, num_y, percent, COLOR_YELLOW);
+        if (percent == 100) {
+            draw_text_small(num_x + 14, num_y, "OK", COLOR_YELLOW);
+        } else {
+            draw_number(num_x, num_y, percent, COLOR_YELLOW);
+        }
         
         int last_fill = (s_last_percent * bar_width) / 100;
         

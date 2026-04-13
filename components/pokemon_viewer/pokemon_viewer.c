@@ -149,14 +149,17 @@ static bool resolve_redirect_url(const char *url, char *out_url, size_t out_size
     esp_http_client_handle_t client = esp_http_client_init(&config);
     esp_err_t err = esp_http_client_open(client, 0);
     if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Resolve open failed: %s", esp_err_to_name(err));
         esp_http_client_cleanup(client);
         return false;
     }
     
-    esp_http_client_fetch_headers(client);
+    int64_t content_len = esp_http_client_fetch_headers(client);
     int status = esp_http_client_get_status_code(client);
     char *location = NULL;
     bool resolved = false;
+    
+    ESP_LOGI(TAG, "Resolve status %d, content_length=%d", status, (int)content_len);
     
     if (status == 200) {
         strncpy(out_url, url, out_size - 1);
@@ -167,6 +170,8 @@ static bool resolve_redirect_url(const char *url, char *out_url, size_t out_size
                location && location[0]) {
         ESP_LOGI(TAG, "Resolve redirect %d -> %s", status, location);
         resolved = resolve_redirect_url(location, out_url, out_size, depth + 1);
+    } else {
+        ESP_LOGW(TAG, "Resolve unexpected status %d", status);
     }
     
     esp_http_client_close(client);

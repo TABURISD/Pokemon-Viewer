@@ -27,9 +27,20 @@ static uint32_t s_seed = 1;
 static int s_current_id = 1;
 static bool s_sd_ready = false;
 
-#define POKEMON_IMAGE_URL "https://cdn.jsdelivr.net/gh/PokeAPI/sprites@master/sprites/pokemon/%d.png"
-#define MAX_PNG_SIZE      32768
+/* 使用 GitHub Raw 地址，避免 CDN 301 重定向导致的不稳定 */
+#define POKEMON_IMAGE_URL "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/%d.png"
+#define MAX_PNG_SIZE      65536
 #define DISPLAY_SIZE      192
+
+/* 静态大缓冲区，避免频繁 malloc/free 导致堆碎片化 */
+static uint8_t  s_png_buf[MAX_PNG_SIZE];
+static uint16_t s_img_buf[DISPLAY_SIZE * DISPLAY_SIZE];
+
+typedef struct {
+    int id;
+    uint8_t *buffer;
+    size_t len;
+} download_ctx_t;
 
 /* 随机数生成 */
 static uint32_t rand_u32(void) {
@@ -81,66 +92,59 @@ static bool show_png_from_sd(int id)
     char path[64];
     snprintf(path, sizeof(path), "%s/%d.png", SD_POKEMON_DIR, id);
     
-    uint8_t *png_buf = (uint8_t *)malloc(MAX_PNG_SIZE);
-    if (!png_buf) return false;
-    
     size_t size = 0;
-    if (sd_read_file(path, png_buf, MAX_PNG_SIZE, &size) != ESP_OK || size == 0) {
-        free(png_buf);
+    if (sd_read_file(path, s_png_buf, MAX_PNG_SIZE, &size) != ESP_OK || size == 0) {
         return false;
     }
     
-    // Direct RGB565 buffer
-    uint16_t *img_buf = (uint16_t *)malloc(DISPLAY_SIZE * DISPLAY_SIZE * 2);
-    if (!img_buf) {
-        free(png_buf);
-        return false;
-    }
-    
-    bool ok = png_decode_buffer(png_buf, size, img_buf, DISPLAY_SIZE, DISPLAY_SIZE);
-    free(png_buf);
-    
+    bool ok = png_decode_buffer(s_png_buf, size, s_img_buf, DISPLAY_SIZE, DISPLAY_SIZE);
     if (ok) {
-        display_rgb565_to_lcd(img_buf, DISPLAY_SIZE);
+        display_rgb565_to_lcd(s_img_buf, DISPLAY_SIZE);
     }
     
-    free(img_buf);
     return ok;
 }
 
-/* HTTP下载处理 */
+/* HTTP下载处理 - 使用 ctx 替代 static 变量，避免重定向时数据错乱 */
 static esp_err_t download_event_handler(esp_http_client_event_t *evt)
 {
-    static uint8_t *buffer = NULL;
-    static size_t len = 0;
+    download_ctx_t *ctx = (download_ctx_t *)evt->user_data;
+    if (!ctx) return ESP_OK;
     
     switch(evt->event_id) {
+        case HTTP_EVENT_ON_CONNECTED:
+            ctx->buffer = NULL;
+            ctx->len = 0;
+            break;
         case HTTP_EVENT_ON_DATA:
-            if (!buffer) {
-                buffer = (uint8_t *)malloc(MAX_PNG_SIZE);
-                len = 0;
+            if (!ctx->buffer) {
+                ctx->buffer = (uint8_t *)malloc(MAX_PNG_SIZE);
+                ctx->len = 0;
             }
-            if (buffer && len + evt->data_len < MAX_PNG_SIZE) {
-                memcpy(buffer + len, evt->data, evt->data_len);
-                len += evt->data_len;
+            if (ctx->buffer && ctx->len + evt->data_len < MAX_PNG_SIZE) {
+                memcpy(ctx->buffer + ctx->len, evt->data, evt->data_len);
+                ctx->len += evt->data_len;
             }
             break;
         case HTTP_EVENT_ON_FINISH:
-            if (buffer && len > 0) {
-                int id = (int)evt->user_data;
+            if (ctx->buffer && ctx->len > 0) {
                 char path[64];
-                snprintf(path, sizeof(path), "%s/%d.png", SD_POKEMON_DIR, id);
-                sd_write_file(path, buffer, len);
-                ESP_LOGI(TAG, "Saved %d bytes to %s", len, path);
+                snprintf(path, sizeof(path), "%s/%d.png", SD_POKEMON_DIR, ctx->id);
+                sd_write_file(path, ctx->buffer, ctx->len);
+                ESP_LOGI(TAG, "Saved %d bytes to %s", (int)ctx->len, path);
             }
-            free(buffer);
-            buffer = NULL;
-            len = 0;
+            if (ctx->buffer) {
+                free(ctx->buffer);
+                ctx->buffer = NULL;
+            }
+            ctx->len = 0;
             break;
         case HTTP_EVENT_DISCONNECTED:
-            free(buffer);
-            buffer = NULL;
-            len = 0;
+            if (ctx->buffer) {
+                free(ctx->buffer);
+                ctx->buffer = NULL;
+            }
+            ctx->len = 0;
             break;
         default:
             break;
@@ -158,21 +162,35 @@ static bool download_pokemon(int id)
     
     ESP_LOGI(TAG, "Downloading #%d...", id);
     
+    download_ctx_t ctx = {
+        .id = id,
+        .buffer = NULL,
+        .len = 0,
+    };
+    
     esp_http_client_config_t config = {
         .url = url,
+        .method = HTTP_METHOD_GET,
         .event_handler = download_event_handler,
         .timeout_ms = 20000,
         .buffer_size = 4096,
-        .user_data = (void *)id,
+        .user_data = &ctx,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .max_redirection_count = 5,
         .disable_auto_redirect = false,
+        .user_agent = "esp32-pokemon-viewer/1.0",
     };
     
     esp_http_client_handle_t client = esp_http_client_init(&config);
     esp_err_t err = esp_http_client_perform(client);
     int status = esp_http_client_get_status_code(client);
     esp_http_client_cleanup(client);
+    
+    /* 清理可能未释放的缓冲区 */
+    if (ctx.buffer) {
+        free(ctx.buffer);
+        ctx.buffer = NULL;
+    }
     
     if (err == ESP_OK && status == 200) {
         ESP_LOGI(TAG, "Download OK");

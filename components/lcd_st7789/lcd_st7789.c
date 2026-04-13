@@ -120,8 +120,8 @@ void lcd_draw_pokeball(void)
         if (dx > 0) lcd_fill(cx - dx, row, dx * 2, 1, COLOR_WHITE);
     }
     
-    // Center black line
-    lcd_fill(cx - 65, cy - 3, 130, 6, COLOR_BLACK);
+    // Center black band (height 20, connects with inner black circle)
+    lcd_fill(cx - 65, cy - 10, 130, 20, COLOR_BLACK);
     
     // Center button - outer white circle (radius 18)
     for (int dy = -18; dy <= 18; dy++) {
@@ -131,7 +131,7 @@ void lcd_draw_pokeball(void)
         if (dx > 0) lcd_fill(cx - dx, row, dx * 2, 1, COLOR_WHITE);
     }
     
-    // Inner black circle (radius 10)
+    // Inner black circle (radius 10) - connects with the black band
     for (int dy = -10; dy <= 10; dy++) {
         int row = cy + dy;
         if (row < 0 || row >= LCD_HEIGHT) continue;

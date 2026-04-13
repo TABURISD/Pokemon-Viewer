@@ -1,7 +1,7 @@
 /*
  * Custom static allocator for lodepng to avoid heap fragmentation on ESP32
  */
-#include <stddef.h>
+#include "lodepng_alloc.h"
 #include <string.h>
 
 #define LODEPNG_POOL_SIZE (96 * 1024)

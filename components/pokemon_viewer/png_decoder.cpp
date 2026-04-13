@@ -3,14 +3,13 @@
  */
 #include "png_decoder.h"
 #include "lodepng.h"
+#include "lodepng_alloc.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include "string.h"
 #include "stdlib.h"
 
 static const char *TAG = "PNG_DECODER";
-
-extern "C" void lodepng_alloc_reset(void);
 
 // Decode PNG directly to RGB565 buffer (2 bytes per pixel)
 bool png_decode_buffer(const uint8_t *png_data, size_t png_size,

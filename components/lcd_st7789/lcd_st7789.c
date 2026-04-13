@@ -27,6 +27,9 @@ static const char *TAG = "LCD_ST7789";
 static esp_lcd_panel_handle_t panel_handle = NULL;
 static esp_lcd_panel_io_handle_t io_handle = NULL;
 
+static int s_last_percent = -1;
+static bool s_progress_dirty = true;
+
 // Swap bytes for display
 static inline uint16_t swap_bytes(uint16_t color) {
     return (color >> 8) | (color << 8);
@@ -240,9 +243,6 @@ static uint16_t rainbow_color(uint8_t pos)
     uint8_t b = 0;
     return swap_bytes(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
 }
-
-static int s_last_percent = -1;
-static bool s_progress_dirty = true;
 
 void lcd_boot_progress(int percent)
 {

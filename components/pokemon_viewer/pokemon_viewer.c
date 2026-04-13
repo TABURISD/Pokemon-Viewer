@@ -65,29 +65,19 @@ static void draw_pokeball(void)
 /* 将 img_size x img_size 的 RGB565 图像放大到全屏 240x240 LCD */
 static void display_rgb565_to_lcd(const uint16_t *img_buf, int img_size)
 {
-    lcd_clear(COLOR_BLACK);
+    uint16_t line_buf[LCD_WIDTH];
     
-    for (int sy = 0; sy < img_size; sy++) {
-        int y_start = sy * LCD_HEIGHT / img_size;
-        int y_end = (sy + 1) * LCD_HEIGHT / img_size;
-        int h = y_end - y_start;
-        if (h <= 0) continue;
+    for (int dy = 0; dy < LCD_HEIGHT; dy++) {
+        int sy = dy * img_size / LCD_HEIGHT;
+        if (sy >= img_size) sy = img_size - 1;
         
-        for (int sx = 0; sx < img_size; ) {
-            uint16_t color = img_buf[sy * img_size + sx];
-            int run_len = 1;
-            while (sx + run_len < img_size && img_buf[sy * img_size + sx + run_len] == color) {
-                run_len++;
-            }
-            
-            int x_start = sx * LCD_WIDTH / img_size;
-            int x_end = (sx + run_len) * LCD_WIDTH / img_size;
-            int w = x_end - x_start;
-            if (w > 0) {
-                lcd_fill(x_start, y_start, w, h, color);
-            }
-            sx += run_len;
+        for (int dx = 0; dx < LCD_WIDTH; dx++) {
+            int sx = dx * img_size / LCD_WIDTH;
+            if (sx >= img_size) sx = img_size - 1;
+            line_buf[dx] = img_buf[sy * img_size + sx];
         }
+        
+        lcd_draw_bitmap_row(dy, line_buf, LCD_WIDTH);
     }
 }
 

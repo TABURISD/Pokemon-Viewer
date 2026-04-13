@@ -31,6 +31,7 @@ void lcd_boot_progress(int percent);
 void lcd_clear(uint16_t color);
 void lcd_fill(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color);
 void lcd_draw_pixel(int16_t x, int16_t y, uint16_t color);
+void lcd_draw_bitmap_row(int16_t y, const uint16_t *data, int16_t w);
 
 // Draw pokeball pattern
 void lcd_draw_pokeball(void);

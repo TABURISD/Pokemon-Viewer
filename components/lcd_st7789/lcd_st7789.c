@@ -71,6 +71,26 @@ void lcd_fill(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color)
     }
 }
 
+void lcd_draw_bitmap_row(int16_t y, const uint16_t *data, int16_t w)
+{
+    if (!panel_handle) return;
+    if (y < 0 || y >= LCD_HEIGHT) return;
+    if (w <= 0) return;
+    
+    int x = 0;
+    int x_end = w;
+    if (x_end > LCD_WIDTH) x_end = LCD_WIDTH;
+    int pixels = x_end - x;
+    if (pixels <= 0) return;
+    
+    static DRAM_ATTR uint16_t row_buf[LCD_WIDTH];
+    for (int i = 0; i < pixels; i++) {
+        row_buf[i] = swap_bytes(data[i]);
+    }
+    
+    esp_lcd_panel_draw_bitmap(panel_handle, x, y, x_end, y + 1, row_buf);
+}
+
 void lcd_clear(uint16_t color)
 {
     lcd_fill(0, 0, LCD_WIDTH, LCD_HEIGHT, color);

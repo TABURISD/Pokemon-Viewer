@@ -139,7 +139,7 @@ static bool download_pokemon(int id)
     strncpy(current_url, url, sizeof(current_url) - 1);
     current_url[sizeof(current_url) - 1] = '\0';
     
-    const int max_attempts = 3;
+    const int max_attempts = 5;
     
     for (int attempt = 0; attempt < max_attempts; attempt++) {
         if (attempt > 0) {
@@ -147,7 +147,7 @@ static bool download_pokemon(int id)
             if (!wifi_manager_is_connected()) return false;
         }
         
-        ESP_LOGI(TAG, "Downloading #%d (attempt %d)...", id, attempt);
+        ESP_LOGI(TAG, "Downloading #%d from %s (attempt %d)...", id, current_url, attempt);
         
         download_ctx_t ctx = {
             .id = id,
@@ -192,12 +192,14 @@ static bool download_pokemon(int id)
                     ESP_LOGI(TAG, "Redirect %d -> %s", status, location);
                     strncpy(current_url, location, sizeof(current_url) - 1);
                     current_url[sizeof(current_url) - 1] = '\0';
+                } else {
+                    ESP_LOGW(TAG, "Status %d but no Location header", status);
                 }
             } else {
                 ESP_LOGW(TAG, "Unexpected status %d, len %d", status, (int)ctx.len);
             }
         } else {
-            ESP_LOGW(TAG, "Perform failed: %s", esp_err_to_name(err));
+            ESP_LOGW(TAG, "Perform failed: %s, status %d, len %d", esp_err_to_name(err), status, (int)ctx.len);
         }
         
         esp_http_client_cleanup(client);

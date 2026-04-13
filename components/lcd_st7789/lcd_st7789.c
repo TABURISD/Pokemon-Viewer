@@ -147,12 +147,20 @@ void lcd_draw_pokeball(void)
         if (dx > 0) lcd_fill(cx - dx, row, dx * 2, 1, COLOR_WHITE);
     }
     
-    // Center button - inner black core (radius 8)
-    for (int dy = -8; dy <= 8; dy++) {
+    // Center button - inner black ring (radius 10, hollow)
+    for (int dy = -10; dy <= 10; dy++) {
         int row = cy + dy;
         if (row < 0 || row >= LCD_HEIGHT) continue;
-        int dx = (int)sqrtf(64 - dy*dy);
+        int dx = (int)sqrtf(100 - dy*dy);
         if (dx > 0) lcd_fill(cx - dx, row, dx * 2, 1, COLOR_BLACK);
+    }
+    
+    // Center button - white core (radius 6)
+    for (int dy = -6; dy <= 6; dy++) {
+        int row = cy + dy;
+        if (row < 0 || row >= LCD_HEIGHT) continue;
+        int dx = (int)sqrtf(36 - dy*dy);
+        if (dx > 0) lcd_fill(cx - dx, row, dx * 2, 1, COLOR_WHITE);
     }
 }
 

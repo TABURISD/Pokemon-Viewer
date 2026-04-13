@@ -35,6 +35,7 @@ static bool s_sd_ready = false;
 /* 静态大缓冲区，避免频繁 malloc/free 导致堆碎片化 */
 static uint8_t  s_png_buf[MAX_PNG_SIZE];
 static uint16_t s_img_buf[DISPLAY_SIZE * DISPLAY_SIZE];
+static uint8_t  s_download_buf[MAX_PNG_SIZE];
 
 typedef struct {
     int id;
@@ -105,7 +106,7 @@ static bool show_png_from_sd(int id)
     return ok;
 }
 
-/* HTTP下载处理 - 使用 ctx 替代 static 变量，避免重定向时数据错乱 */
+/* HTTP下载处理 - 使用静态缓冲区，避免 malloc */
 static esp_err_t download_event_handler(esp_http_client_event_t *evt)
 {
     download_ctx_t *ctx = (download_ctx_t *)evt->user_data;
@@ -113,14 +114,10 @@ static esp_err_t download_event_handler(esp_http_client_event_t *evt)
     
     switch(evt->event_id) {
         case HTTP_EVENT_ON_CONNECTED:
-            ctx->buffer = NULL;
+            ctx->buffer = s_download_buf;
             ctx->len = 0;
             break;
         case HTTP_EVENT_ON_DATA:
-            if (!ctx->buffer) {
-                ctx->buffer = (uint8_t *)malloc(MAX_PNG_SIZE);
-                ctx->len = 0;
-            }
             if (ctx->buffer && ctx->len + evt->data_len < MAX_PNG_SIZE) {
                 memcpy(ctx->buffer + ctx->len, evt->data, evt->data_len);
                 ctx->len += evt->data_len;
@@ -133,17 +130,9 @@ static esp_err_t download_event_handler(esp_http_client_event_t *evt)
                 sd_write_file(path, ctx->buffer, ctx->len);
                 ESP_LOGI(TAG, "Saved %d bytes to %s", (int)ctx->len, path);
             }
-            if (ctx->buffer) {
-                free(ctx->buffer);
-                ctx->buffer = NULL;
-            }
             ctx->len = 0;
             break;
         case HTTP_EVENT_DISCONNECTED:
-            if (ctx->buffer) {
-                free(ctx->buffer);
-                ctx->buffer = NULL;
-            }
             ctx->len = 0;
             break;
         default:
@@ -152,7 +141,7 @@ static esp_err_t download_event_handler(esp_http_client_event_t *evt)
     return ESP_OK;
 }
 
-/* 下载单个宝可梦 */
+/* 下载单个宝可梦（带重试） */
 static bool download_pokemon(int id)
 {
     char url[128];
@@ -160,44 +149,56 @@ static bool download_pokemon(int id)
     
     if (!wifi_manager_is_connected()) return false;
     
-    ESP_LOGI(TAG, "Downloading #%d...", id);
+    const int retry_delays_ms[] = {0, 500, 1000};
+    const int max_retries = sizeof(retry_delays_ms) / sizeof(retry_delays_ms[0]);
     
-    download_ctx_t ctx = {
-        .id = id,
-        .buffer = NULL,
-        .len = 0,
-    };
-    
-    esp_http_client_config_t config = {
-        .url = url,
-        .method = HTTP_METHOD_GET,
-        .event_handler = download_event_handler,
-        .timeout_ms = 20000,
-        .buffer_size = 4096,
-        .user_data = &ctx,
-        .crt_bundle_attach = esp_crt_bundle_attach,
-        .max_redirection_count = 5,
-        .disable_auto_redirect = false,
-        .user_agent = "esp32-pokemon-viewer/1.0",
-    };
-    
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-    esp_err_t err = esp_http_client_perform(client);
-    int status = esp_http_client_get_status_code(client);
-    esp_http_client_cleanup(client);
-    
-    /* 清理可能未释放的缓冲区 */
-    if (ctx.buffer) {
-        free(ctx.buffer);
-        ctx.buffer = NULL;
+    for (int attempt = 0; attempt < max_retries; attempt++) {
+        if (attempt > 0) {
+            ESP_LOGI(TAG, "Retry #%d for #%d after %d ms...", attempt, id, retry_delays_ms[attempt]);
+            vTaskDelay(pdMS_TO_TICKS(retry_delays_ms[attempt]));
+            if (!wifi_manager_is_connected()) return false;
+        }
+        
+        ESP_LOGI(TAG, "Downloading #%d...", id);
+        
+        download_ctx_t ctx = {
+            .id = id,
+            .buffer = NULL,
+            .len = 0,
+        };
+        
+        esp_http_client_config_t config = {
+            .url = url,
+            .method = HTTP_METHOD_GET,
+            .event_handler = download_event_handler,
+            .timeout_ms = 15000,
+            .buffer_size = 4096,
+            .user_data = &ctx,
+            .crt_bundle_attach = esp_crt_bundle_attach,
+            .max_redirection_count = 5,
+            .disable_auto_redirect = false,
+            .user_agent = "esp32-pokemon-viewer/1.0",
+        };
+        
+        esp_http_client_handle_t client = esp_http_client_init(&config);
+        esp_err_t err = esp_http_client_perform(client);
+        int status = esp_http_client_get_status_code(client);
+        esp_http_client_cleanup(client);
+        vTaskDelay(pdMS_TO_TICKS(10));
+        
+        if (err == ESP_OK && status == 200) {
+            if (attempt > 0) {
+                ESP_LOGI(TAG, "Download OK after retry #%d", attempt);
+            } else {
+                ESP_LOGI(TAG, "Download OK");
+            }
+            return true;
+        }
+        
+        ESP_LOGW(TAG, "Download attempt %d failed: %s, status %d", attempt, esp_err_to_name(err), status);
     }
     
-    if (err == ESP_OK && status == 200) {
-        ESP_LOGI(TAG, "Download OK");
-        return true;
-    }
-    
-    ESP_LOGW(TAG, "Download failed: %s, status %d", esp_err_to_name(err), status);
+    ESP_LOGW(TAG, "Download #%d failed after all retries", id);
     return false;
 }
 

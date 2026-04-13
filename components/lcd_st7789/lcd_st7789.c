@@ -128,30 +128,30 @@ void lcd_draw_pokeball(void)
         if (dx > 0) lcd_fill(cx - dx, row, dx * 2, 1, COLOR_WHITE);
     }
     
-    // Center black band (height 14, matches button outer ring)
-    lcd_fill(cx - 60, cy - 7, 120, 14, COLOR_BLACK);
+    // Center black band (height 8, thinner)
+    lcd_fill(cx - 60, cy - 4, 120, 8, COLOR_BLACK);
     
-    // Center button - outer black ring (radius 16)
+    // Center button - outer black ring (radius 22)
+    for (int dy = -22; dy <= 22; dy++) {
+        int row = cy + dy;
+        if (row < 0 || row >= LCD_HEIGHT) continue;
+        int dx = (int)sqrtf(484 - dy*dy);
+        if (dx > 0) lcd_fill(cx - dx, row, dx * 2, 1, COLOR_BLACK);
+    }
+    
+    // Center button - middle white ring (radius 16)
     for (int dy = -16; dy <= 16; dy++) {
         int row = cy + dy;
         if (row < 0 || row >= LCD_HEIGHT) continue;
         int dx = (int)sqrtf(256 - dy*dy);
-        if (dx > 0) lcd_fill(cx - dx, row, dx * 2, 1, COLOR_BLACK);
-    }
-    
-    // Center button - middle white ring (radius 10)
-    for (int dy = -10; dy <= 10; dy++) {
-        int row = cy + dy;
-        if (row < 0 || row >= LCD_HEIGHT) continue;
-        int dx = (int)sqrtf(100 - dy*dy);
         if (dx > 0) lcd_fill(cx - dx, row, dx * 2, 1, COLOR_WHITE);
     }
     
-    // Center button - inner black core (radius 4)
-    for (int dy = -4; dy <= 4; dy++) {
+    // Center button - inner black core (radius 8)
+    for (int dy = -8; dy <= 8; dy++) {
         int row = cy + dy;
         if (row < 0 || row >= LCD_HEIGHT) continue;
-        int dx = (int)sqrtf(16 - dy*dy);
+        int dx = (int)sqrtf(64 - dy*dy);
         if (dx > 0) lcd_fill(cx - dx, row, dx * 2, 1, COLOR_BLACK);
     }
 }

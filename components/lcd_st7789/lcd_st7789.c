@@ -192,6 +192,30 @@ static void draw_number(int x, int y, int value, uint16_t color)
     draw_digit(x + 32, y, value % 10, color);
 }
 
+static void draw_letter(int x, int y, char letter, uint16_t color)
+{
+    static const uint8_t font_K[5] = {0x05, 0x05, 0x06, 0x05, 0x05};
+    const uint8_t *pattern = NULL;
+    
+    if (letter == 'O' || letter == 'o') {
+        pattern = digit_font[0];  // 0 and O share the same shape
+    } else if (letter == 'K' || letter == 'k') {
+        pattern = font_K;
+    } else {
+        return;
+    }
+    
+    for (int row = 4; row >= 0; row--) {
+        uint8_t p = pattern[row];
+        int flipped_row = 4 - row;
+        for (int col = 0; col < 3; col++) {
+            if (p & (1 << (2 - col))) {
+                lcd_fill(x + col * 4, y + flipped_row * 4, 3, 3, color);
+            }
+        }
+    }
+}
+
 static void draw_text_small(int x, int y, const char *text, uint16_t color)
 {
     // Very simple 5x7-like characters, only uppercase and spaces
@@ -292,7 +316,8 @@ void lcd_boot_progress(int percent)
         
         // Percentage number (show OK at 100%)
         if (percent == 100) {
-            draw_text_small(num_x + 14, num_y, "OK", COLOR_YELLOW);
+            draw_letter(num_x + 8, num_y, 'O', COLOR_YELLOW);
+            draw_letter(num_x + 24, num_y, 'K', COLOR_YELLOW);
         } else {
             draw_number(num_x, num_y, percent, COLOR_YELLOW);
         }
@@ -321,7 +346,8 @@ void lcd_boot_progress(int percent)
         // Only update the number (clear old number area)
         lcd_fill(num_x - 2, num_y - 2, 74, 26, COLOR_BLACK);
         if (percent == 100) {
-            draw_text_small(num_x + 14, num_y, "OK", COLOR_YELLOW);
+            draw_letter(num_x + 8, num_y, 'O', COLOR_YELLOW);
+            draw_letter(num_x + 24, num_y, 'K', COLOR_YELLOW);
         } else {
             draw_number(num_x, num_y, percent, COLOR_YELLOW);
         }

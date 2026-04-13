@@ -146,7 +146,6 @@ static bool download_pokemon(int id)
         current_url[sizeof(current_url) - 1] = '\0';
         
         const int max_attempts = 3;
-        
         for (int attempt = 0; attempt < max_attempts; attempt++) {
             if (attempt > 0 || source_idx > 0) {
                 vTaskDelay(pdMS_TO_TICKS(2000));
@@ -169,7 +168,6 @@ static bool download_pokemon(int id)
                 .buffer_size = 4096,
                 .user_data = &ctx,
                 .crt_bundle_attach = esp_crt_bundle_attach,
-                .disable_auto_redirect = true,
                 .user_agent = "esp32-pokemon-viewer/1.0",
             };
             
@@ -197,18 +195,6 @@ static bool download_pokemon(int id)
                 } else if (status == 404) {
                     ESP_LOGW(TAG, "Source %d returned 404 for #%d, switching source", source_idx, id);
                     should_switch_source = true;
-                } else if ((status == 301 || status == 302) && attempt < max_attempts - 1) {
-                    char *location = NULL;
-                    if (esp_http_client_get_header(client, "Location", &location) != ESP_OK || !location || !location[0]) {
-                        esp_http_client_get_header(client, "location", &location);
-                    }
-                    if (location && location[0]) {
-                        ESP_LOGI(TAG, "Redirect %d -> %s", status, location);
-                        strncpy(current_url, location, sizeof(current_url) - 1);
-                        current_url[sizeof(current_url) - 1] = '\0';
-                    } else {
-                        ESP_LOGW(TAG, "Status %d but no Location header", status);
-                    }
                 } else {
                     ESP_LOGW(TAG, "Unexpected status %d, len %d", status, (int)ctx.len);
                 }

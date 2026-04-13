@@ -30,12 +30,12 @@ static bool s_sd_ready = false;
 /* 使用 GitHub Raw 地址，避免 CDN 301 重定向导致的不稳定 */
 #define POKEMON_IMAGE_URL "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/%d.png"
 #define MAX_PNG_SIZE      65536
-#define DISPLAY_SIZE      192
+#define DISPLAY_SIZE      128
 
-/* 静态大缓冲区，避免频繁 malloc/free 导致堆碎片化 */
-static uint8_t  s_png_buf[MAX_PNG_SIZE];
+/* 静态大缓冲区，避免频繁 malloc/free 导致堆碎片化
+ * 下载和读取PNG共用同一块缓冲区，因为两者不会并发执行 */
+static uint8_t  s_io_buf[MAX_PNG_SIZE];
 static uint16_t s_img_buf[DISPLAY_SIZE * DISPLAY_SIZE];
-static uint8_t  s_download_buf[MAX_PNG_SIZE];
 
 typedef struct {
     int id;
@@ -94,11 +94,11 @@ static bool show_png_from_sd(int id)
     snprintf(path, sizeof(path), "%s/%d.png", SD_POKEMON_DIR, id);
     
     size_t size = 0;
-    if (sd_read_file(path, s_png_buf, MAX_PNG_SIZE, &size) != ESP_OK || size == 0) {
+    if (sd_read_file(path, s_io_buf, MAX_PNG_SIZE, &size) != ESP_OK || size == 0) {
         return false;
     }
     
-    bool ok = png_decode_buffer(s_png_buf, size, s_img_buf, DISPLAY_SIZE, DISPLAY_SIZE);
+    bool ok = png_decode_buffer(s_io_buf, size, s_img_buf, DISPLAY_SIZE, DISPLAY_SIZE);
     if (ok) {
         display_rgb565_to_lcd(s_img_buf, DISPLAY_SIZE);
     }
@@ -114,7 +114,7 @@ static esp_err_t download_event_handler(esp_http_client_event_t *evt)
     
     switch(evt->event_id) {
         case HTTP_EVENT_ON_CONNECTED:
-            ctx->buffer = s_download_buf;
+            ctx->buffer = s_io_buf;
             ctx->len = 0;
             break;
         case HTTP_EVENT_ON_DATA:

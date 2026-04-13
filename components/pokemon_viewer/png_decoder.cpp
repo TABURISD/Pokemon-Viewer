@@ -10,8 +10,6 @@
 
 static const char *TAG = "PNG_DECODER";
 
-extern "C" void lodepng_alloc_reset(void);
-
 // Decode PNG directly to RGB565 buffer (2 bytes per pixel)
 bool png_decode_buffer(const uint8_t *png_data, size_t png_size,
                        uint16_t *out_buffer, int width, int height)
@@ -23,8 +21,6 @@ bool png_decode_buffer(const uint8_t *png_data, size_t png_size,
 
     size_t largest_free = heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT);
     ESP_LOGD(TAG, "Heap largest free block: %d bytes", (int)largest_free);
-
-    lodepng_alloc_reset();
 
     unsigned error = lodepng_decode32(&image, &png_w, &png_h, png_data, png_size);
     if (error) {
